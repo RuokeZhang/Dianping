@@ -9,6 +9,7 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +34,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisIdWorker redisIdWorker;
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public Result seckillVoucher(Long voucherId) {
         //查询优惠券
         SeckillVoucher voucher=seckillVoucherService.getById(voucherId);
@@ -45,23 +45,38 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if(voucher.getStock()<1){
             return Result.fail("库存不足");
         }
+        Long userId=UserHolder.getUser().getId();
+        synchronized(userId.toString().intern()){
+            //TODO: 事务时效场景
+            IVoucherOrderService proxy=(IVoucherOrderService) AopContext.currentProxy();
+            return  proxy.createVoucherOrder(voucherId);
+        }
+    }
+    @Transactional
+    public Result createVoucherOrder(Long voucherId){
+        Long userId=UserHolder.getUser().getId();
+        int count=query().eq("user_id",userId).eq("voucher_id", voucherId).count();
+
+        if(count>0){
+            return Result.fail("用户已经购买过一次了～");
+        }
         //扣减库存
         boolean success= seckillVoucherService.update().setSql("stock=stock-1")
                 .eq("voucher_id",voucherId)
+                .gt("stock", 0)
                 .update();
         if(!success){
-            return Result.fail("库存不足");
+            return Result.fail("库存不足，数据库更新失败");
         }
+
         //创建订单
         VoucherOrder voucherOrder=new VoucherOrder();
         //返回订单id
         Long orderId= redisIdWorker.nextId("order");
         voucherOrder.setId(orderId);
-        Long userId= UserHolder.getUser().getId();
         voucherOrder.setUserId(userId);
         voucherOrder.setVoucherId(voucherId);
         save(voucherOrder);
-
         return Result.ok(orderId);
     }
 }
