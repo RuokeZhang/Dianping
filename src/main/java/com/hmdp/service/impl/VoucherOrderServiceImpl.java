@@ -8,8 +8,10 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     @Resource
     private RedisIdWorker redisIdWorker;
 
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
     @Override
     public Result seckillVoucher(Long voucherId) {
         //查询优惠券
@@ -46,11 +51,19 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足");
         }
         Long userId=UserHolder.getUser().getId();
-        synchronized(userId.toString().intern()){
-            //TODO: 事务时效场景
+        //这里加个锁。预防多 JVM 情况下，来自同一用户的同一时间的多个请求，分别占用了不同 JVM 的 synchronized 锁。
+        SimpleRedisLock lock=new SimpleRedisLock("order:"+userId, stringRedisTemplate);
+        boolean isLock=lock.tryLock(1200);
+        if(!isLock){
+            return Result.fail("不允许重复下单");
+        }
+        try{
             IVoucherOrderService proxy=(IVoucherOrderService) AopContext.currentProxy();
             return  proxy.createVoucherOrder(voucherId);
+        }finally{
+            lock.unlock();
         }
+
     }
     @Transactional
     public Result createVoucherOrder(Long voucherId){
