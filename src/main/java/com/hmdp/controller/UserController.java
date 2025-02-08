@@ -1,10 +1,13 @@
 package com.hmdp.controller;
 
 
+import cn.hutool.core.bean.BeanUtil;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
+import com.hmdp.entity.User;
 import com.hmdp.entity.UserInfo;
+import com.hmdp.service.IBlogService;
 import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.UserHolder;
@@ -32,6 +35,9 @@ public class UserController {
 
     @Resource
     private IUserInfoService userInfoService;
+
+    @Resource
+    private IBlogService blogService;
 
     /**
      * 发送手机验证码
@@ -79,4 +85,14 @@ public class UserController {
         // 返回
         return Result.ok(info);
     }
+    @GetMapping("/{id}")
+    public Result queryUserById(@PathVariable("id") Long userId){
+        User user= userService.getById(userId);
+        if(user==null){
+            return Result.ok();
+        }
+        UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
+        return Result.ok(userDTO);
+    }
+
 }
